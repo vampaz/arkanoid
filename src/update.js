@@ -379,8 +379,10 @@ function resolveBrickCollision(ball, brick) {
 
   if (overlapX < overlapY) {
     ball.dx = dx > 0 ? Math.abs(ball.dx) : -Math.abs(ball.dx);
+    ball.x += dx > 0 ? overlapX : -overlapX;
   } else {
     ball.dy = dy > 0 ? Math.abs(ball.dy) : -Math.abs(ball.dy);
+    ball.y += dy > 0 ? overlapY : -overlapY;
   }
 }
 

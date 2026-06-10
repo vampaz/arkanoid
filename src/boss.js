@@ -138,10 +138,18 @@ function checkBossBallCollision(ball) {
 
     const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
 
-    if (minOverlap === overlapTop || minOverlap === overlapBottom) {
-      ball.dy = -ball.dy;
+    if (minOverlap === overlapTop) {
+      ball.dy = -Math.abs(ball.dy);
+      ball.y = boss.y - ball.radius;
+    } else if (minOverlap === overlapBottom) {
+      ball.dy = Math.abs(ball.dy);
+      ball.y = boss.y + boss.height + ball.radius;
+    } else if (minOverlap === overlapLeft) {
+      ball.dx = -Math.abs(ball.dx);
+      ball.x = boss.x - ball.radius;
     } else {
-      ball.dx = -ball.dx;
+      ball.dx = Math.abs(ball.dx);
+      ball.x = boss.x + boss.width + ball.radius;
     }
 
     boss.hp--;
