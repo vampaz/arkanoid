@@ -317,9 +317,9 @@ function checkTeleporters(ball) {
 function collideBricks(ball, ballIndex) {
   let hit = false;
 
-  for (let c = 0; c < COLS && !hit; c++) {
-    for (let r = 0; r < ROWS && !hit; r++) {
-      const brick = state.bricks[c][r];
+  for (let r = 0; r < ROWS && !hit; r++) {
+    for (let c = 0; c < COLS && !hit; c++) {
+      const brick = state.bricks[r][c];
       if (brick.type === BRICK_TYPE.NONE || brick.hits <= 0) continue;
 
       if (!checkBrickCollision(ball, brick)) continue;
@@ -387,8 +387,8 @@ function resolveBrickCollision(ball, brick) {
 function launchBall(ball) {
   ball.onPaddle = false;
   const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.3;
-  ball.dx = Math.sin(angle) * ball.speed;
-  ball.dy = -Math.cos(angle) * ball.speed;
+  ball.dx = Math.cos(angle) * ball.speed;
+  ball.dy = Math.sin(angle) * ball.speed;
   sfx.launch();
 }
 
@@ -434,9 +434,9 @@ function updateLasers(dt) {
       continue;
     }
 
-    for (let c = 0; c < COLS && !hit; c++) {
-      for (let r = 0; r < ROWS && !hit; r++) {
-        const brick = state.bricks[c][r];
+    for (let r = 0; r < ROWS && !hit; r++) {
+      for (let c = 0; c < COLS && !hit; c++) {
+        const brick = state.bricks[r][c];
         if (brick.type === BRICK_TYPE.NONE || brick.hits <= 0) continue;
 
         if (laser.x > brick.x && laser.x < brick.x + BRICK_WIDTH &&

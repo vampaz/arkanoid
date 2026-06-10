@@ -116,9 +116,9 @@ function drawBrickFlashes() {
 }
 
 function drawBricks() {
-  for (let c = 0; c < COLS; c++) {
-    for (let r = 0; r < ROWS; r++) {
-      const brick = state.bricks[c][r];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const brick = state.bricks[r][c];
       if (brick.type === BRICK_TYPE.NONE || brick.hits <= 0) continue;
 
       const colors = BRICK_COLORS[brick.type];

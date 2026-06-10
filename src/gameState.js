@@ -231,10 +231,10 @@ function loadStage(stageNum) {
   state.teleporters = [];
   let teleporterIndex = 0;
 
-  for (let c = 0; c < COLS; c++) {
-    state.bricks[c] = [];
-    for (let r = 0; r < ROWS; r++) {
-      const type = layout[c] && layout[c][r] ? layout[c][r] : 0;
+  for (let r = 0; r < ROWS; r++) {
+    state.bricks[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      const type = layout[r] && layout[r][c] ? layout[r][c] : 0;
       const brick = {
         x: c * (BRICK_WIDTH + BRICK_PADDING) + BRICK_OFFSET_LEFT,
         y: r * (BRICK_HEIGHT + BRICK_PADDING) + BRICK_OFFSET_TOP,
@@ -254,7 +254,7 @@ function loadStage(stageNum) {
         teleporterIndex++;
       }
 
-      state.bricks[c][r] = brick;
+      state.bricks[r][c] = brick;
     }
   }
 }
@@ -357,9 +357,9 @@ function checkStageClear() {
   if (state.boss && state.boss.active) {
     return state.boss.hp <= 0;
   }
-  for (let c = 0; c < COLS; c++) {
-    for (let r = 0; r < ROWS; r++) {
-      const b = state.bricks[c][r];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const b = state.bricks[r][c];
       if (b.type !== BRICK_TYPE.NONE && b.type !== BRICK_TYPE.TELEPORTER && b.hits > 0) {
         return false;
       }
