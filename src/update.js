@@ -2,6 +2,8 @@ import { canvas } from './canvas.js';
 import { state, STATE, BRICK_TYPE, BALL_RADIUS, PADDLE_WIDTH_START, COLS, ROWS, BRICK_WIDTH, BRICK_HEIGHT, POWERUP, createBall, addScore, loseLife, checkStageClear, nextStage, saveSeenPowerUp } from './gameState.js';
 import { sfx, startMusic, stopMusic } from './audio.js';
 import { spawnExplosion, spawnLaser, removeLaser, updateParticles, lasers } from './particles.js';
+import { enemies, spawnEnemies, updateEnemies, checkEnemyCollision, checkLaserEnemyCollision } from './enemies.js';
+import { boss, isBossStage, initBoss, updateBoss, checkBossBallCollision, checkBossLaserCollision, resetBoss } from './boss.js';
 
 const POWERUP_DROP_CHANCE = 0.25;
 const LASER_COOLDOWN = 8;
@@ -15,6 +17,10 @@ function update() {
     if (state.stageIntroTimer <= 0) {
       state.current = STATE.PLAYING;
       startMusic(state.stage);
+      spawnEnemies(state.stage);
+      if (isBossStage(state.stage)) {
+        initBoss(state.stage);
+      }
     }
     updatePaddle(dt);
     return;
@@ -45,10 +51,6 @@ function update() {
     state.comboTimer -= dt;
     if (state.comboTimer <= 0) state.combo = 0;
   }
-  if (state.fireballTimer > 0) {
-    state.fireballTimer -= dt;
-    if (state.fireballTimer <= 0) state.fireballActive = false;
-  }
   if (state.laserTimer > 0) {
     state.laserTimer -= dt;
     if (state.laserTimer <= 0) state.laserActive = false;
@@ -59,16 +61,23 @@ function update() {
       state.paddle.width = PADDLE_WIDTH_START;
     }
   }
-  if (state.shrinkTimer > 0) {
-    state.shrinkTimer -= dt;
-    if (state.shrinkTimer <= 0) {
-      state.shrinkActive = false;
-      state.shrinkTimer = 0;
-    }
-  }
   if (state.ballGrabTimer > 0) {
     state.ballGrabTimer -= dt;
     if (state.ballGrabTimer <= 0) state.ballGrabActive = false;
+  }
+  if (state.reverseTimer > 0) {
+    state.reverseTimer -= dt;
+    if (state.reverseTimer <= 0) {
+      state.reverseControls = false;
+      state.reverseTimer = 0;
+    }
+  }
+  if (state.missTimer > 0) {
+    state.missTimer -= dt;
+    if (state.missTimer <= 0) {
+      state.missActive = false;
+      state.missTimer = 0;
+    }
   }
 
   if (state.screenShake.timer > 0) {
@@ -114,12 +123,25 @@ function update() {
   updatePowerUps(dt);
   updateParticles();
   updateBallTrails(dt);
+  updateEnemies(dt, state);
+  updateBoss(dt, state);
+  updateDecoyPaddle(dt);
 
   if (checkStageClear()) {
     state.current = STATE.STAGE_CLEAR;
     state.stageClearTimer = 120;
     sfx.stageClear();
     stopMusic();
+    resetBoss();
+  }
+}
+
+function updateDecoyPaddle(dt) {
+  if (!state.decoyPaddle) return;
+
+  state.decoyPaddle.y += state.decoyPaddle.dy * dt;
+  if (state.decoyPaddle.y > canvas.height) {
+    state.decoyPaddle = null;
   }
 }
 
@@ -127,8 +149,13 @@ function updatePaddle(dt) {
   if (!state.paddle) return;
 
   state.paddle.dx = 0;
-  if (state.keys['ArrowLeft'] || state.keys['a']) state.paddle.dx = -state.paddle.speed;
-  if (state.keys['ArrowRight'] || state.keys['d']) state.paddle.dx = state.paddle.speed;
+  const leftKey = state.reverseControls ? 'ArrowRight' : 'ArrowLeft';
+  const rightKey = state.reverseControls ? 'ArrowLeft' : 'ArrowRight';
+  const leftAlt = state.reverseControls ? 'd' : 'a';
+  const rightAlt = state.reverseControls ? 'a' : 'd';
+
+  if (state.keys[leftKey] || state.keys[leftAlt]) state.paddle.dx = -state.paddle.speed;
+  if (state.keys[rightKey] || state.keys[rightAlt]) state.paddle.dx = state.paddle.speed;
 
   state.paddle.x += state.paddle.dx * dt;
   if (state.paddle.x < 0) state.paddle.x = 0;
@@ -204,6 +231,16 @@ function updateBalls(dt) {
     }
 
     if (ball.y + ball.radius > canvas.height) {
+      if (state.decoyPaddle &&
+          ball.x > state.decoyPaddle.x &&
+          ball.x < state.decoyPaddle.x + state.decoyPaddle.width &&
+          ball.y + ball.radius > state.decoyPaddle.y &&
+          ball.y + ball.radius < state.decoyPaddle.y + state.decoyPaddle.height) {
+        ball.dy = -Math.abs(ball.dy);
+        ball.y = state.decoyPaddle.y - ball.radius;
+        continue;
+      }
+
       state.balls.splice(i, 1);
       if (state.balls.length === 0) {
         loseLife();
@@ -230,6 +267,24 @@ function updateBalls(dt) {
 
       state.paddleFlash = 6;
       sfx.paddleHit();
+    }
+
+    const enemyHit = checkEnemyCollision(ball);
+    if (enemyHit) {
+      addScore(100);
+      sfx.brickHit(0);
+      spawnExplosion(enemyHit.x, enemyHit.y, '#ffaa00');
+      state.screenShake.intensity = 3;
+      state.screenShake.timer = 4;
+      continue;
+    }
+
+    if (checkBossBallCollision(ball)) {
+      addScore(50);
+      sfx.brickHit(0);
+      state.screenShake.intensity = 4;
+      state.screenShake.timer = 5;
+      continue;
     }
 
     checkTeleporters(ball);
@@ -277,7 +332,7 @@ function collideBricks(ball, ballIndex) {
         continue;
       }
 
-      if (brick.type === BRICK_TYPE.STEEL && !ball.fireball) {
+      if (brick.type === BRICK_TYPE.STEEL) {
         resolveBrickCollision(ball, brick);
         sfx.steelHit();
         hit = true;
@@ -286,30 +341,24 @@ function collideBricks(ball, ballIndex) {
 
       resolveBrickCollision(ball, brick);
 
-      if (ball.fireball || brick.type !== BRICK_TYPE.STEEL) {
-        brick.hits--;
-        const rowScore = (ROWS - r + 1) * 10;
-        addScore(rowScore);
-        sfx.brickHit(r);
+      brick.hits--;
+      const rowScore = (ROWS - r + 1) * 10;
+      addScore(rowScore);
+      sfx.brickHit(r);
 
-        state.brickFlashes.push({ x: brick.x, y: brick.y, timer: 6 });
-        state.screenShake.intensity = 3;
-        state.screenShake.timer = 4;
+      state.brickFlashes.push({ x: brick.x, y: brick.y, timer: 6 });
+      state.screenShake.intensity = 3;
+      state.screenShake.timer = 4;
 
-        if (brick.hits <= 0) {
-          brick.type = BRICK_TYPE.NONE;
-          spawnExplosion(brick.x + BRICK_WIDTH / 2, brick.y + BRICK_HEIGHT / 2, '#ffaa00');
-          if (Math.random() < POWERUP_DROP_CHANCE) {
-            spawnPowerUp(brick.x + BRICK_WIDTH / 2, brick.y + BRICK_HEIGHT / 2);
-          }
+      if (brick.hits <= 0) {
+        brick.type = BRICK_TYPE.NONE;
+        spawnExplosion(brick.x + BRICK_WIDTH / 2, brick.y + BRICK_HEIGHT / 2, '#ffaa00');
+        if (Math.random() < POWERUP_DROP_CHANCE) {
+          spawnPowerUp(brick.x + BRICK_WIDTH / 2, brick.y + BRICK_HEIGHT / 2);
         }
-
-        if (!ball.fireball) {
-          hit = true;
-        }
-      } else {
-        hit = true;
       }
+
+      hit = true;
     }
   }
 }
@@ -362,6 +411,29 @@ function updateLasers(dt) {
     }
 
     let hit = false;
+
+    const enemyHit = checkLaserEnemyCollision(laser);
+    if (enemyHit) {
+      addScore(100);
+      sfx.brickHit(0);
+      spawnExplosion(enemyHit.x, enemyHit.y, '#ffaa00');
+      state.screenShake.intensity = 2;
+      state.screenShake.timer = 3;
+      removeLaser(laser);
+      hit = true;
+      continue;
+    }
+
+    if (checkBossLaserCollision(laser)) {
+      addScore(50);
+      sfx.brickHit(0);
+      state.screenShake.intensity = 3;
+      state.screenShake.timer = 4;
+      removeLaser(laser);
+      hit = true;
+      continue;
+    }
+
     for (let c = 0; c < COLS && !hit; c++) {
       for (let r = 0; r < ROWS && !hit; r++) {
         const brick = state.bricks[c][r];
@@ -400,8 +472,12 @@ function updateLasers(dt) {
 }
 
 function spawnPowerUp(x, y) {
-  const types = [POWERUP.EXPAND, POWERUP.SHRINK, POWERUP.FIREBALL, POWERUP.MULTIBALL, POWERUP.LASER, POWERUP.SLOW, POWERUP.FAST, POWERUP.GRAB];
-  const weights = [15, 10, 20, 15, 20, 10, 10, 5];
+  const types = [
+    POWERUP.EXPAND, POWERUP.SLOW, POWERUP.MULTIBALL, POWERUP.CATCH,
+    POWERUP.LASER, POWERUP.REVERSE, POWERUP.WARP_NEXT, POWERUP.WARP_PREV,
+    POWERUP.DECOY, POWERUP.MISS
+  ];
+  const weights = [15, 10, 10, 10, 10, 5, 5, 5, 5, 5];
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   let rand = Math.random() * totalWeight;
 
@@ -450,42 +526,6 @@ function applyPowerUp(type) {
       if (state.paddle) state.paddle.width = Math.min(250, state.paddle.width + 40);
       state.expandTimer = 600;
       break;
-    case POWERUP.SHRINK:
-      if (state.paddle) state.paddle.width = Math.max(50, state.paddle.width - 40);
-      state.shrinkActive = true;
-      state.shrinkTimer = 600;
-      break;
-    case POWERUP.FIREBALL:
-      state.fireballActive = true;
-      state.fireballTimer = 500;
-      state.balls.forEach(b => b.fireball = true);
-      break;
-    case POWERUP.MULTIBALL: {
-      const newBalls = [];
-      state.balls.forEach(b => {
-        if (!b.onPaddle) {
-          for (let i = 0; i < 2; i++) {
-            const angle = Math.atan2(b.dy, b.dx) + (i === 0 ? 0.5 : -0.5);
-            newBalls.push({
-              x: b.x, y: b.y,
-              dx: Math.cos(angle) * b.speed,
-              dy: Math.sin(angle) * b.speed,
-              radius: BALL_RADIUS,
-              speed: b.speed,
-              onPaddle: false,
-              fireball: b.fireball,
-              trail: [],
-            });
-          }
-        }
-      });
-      state.balls.push(...newBalls);
-      break;
-    }
-    case POWERUP.LASER:
-      state.laserActive = true;
-      state.laserTimer = 500;
-      break;
     case POWERUP.SLOW:
       state.balls.forEach(b => {
         if (!b.onPaddle) {
@@ -496,19 +536,70 @@ function applyPowerUp(type) {
         }
       });
       break;
-    case POWERUP.FAST:
-      state.balls.forEach(b => {
-        if (!b.onPaddle) {
-          b.speed = Math.min(10, b.speed + 1);
-          const angle = Math.atan2(b.dy, b.dx);
-          b.dx = Math.cos(angle) * b.speed;
-          b.dy = Math.sin(angle) * b.speed;
+    case POWERUP.MULTIBALL:
+      const activeBalls = state.balls.filter(b => !b.onPaddle);
+      if (activeBalls.length > 0) {
+        const baseBall = activeBalls[0];
+        for (let i = 0; i < 2; i++) {
+          const angle = Math.atan2(baseBall.dy, baseBall.dx) + (i === 0 ? 0.5 : -0.5);
+          state.balls.push({
+            x: baseBall.x, y: baseBall.y,
+            dx: Math.cos(angle) * baseBall.speed,
+            dy: Math.sin(angle) * baseBall.speed,
+            radius: BALL_RADIUS,
+            speed: baseBall.speed,
+            onPaddle: false,
+            trail: [],
+          });
         }
-      });
+      }
       break;
-    case POWERUP.GRAB:
+    case POWERUP.CATCH:
       state.ballGrabActive = true;
       state.ballGrabTimer = 400;
+      break;
+    case POWERUP.LASER:
+      state.laserActive = true;
+      state.laserTimer = 500;
+      break;
+    case POWERUP.REVERSE:
+      state.reverseControls = true;
+      state.reverseTimer = 600;
+      break;
+    case POWERUP.WARP_NEXT:
+      if (state.stage < state.totalStages) {
+        state.stage++;
+        resetStage();
+        state.current = STATE.STAGE_INTRO;
+        state.stageIntroTimer = 120;
+      }
+      break;
+    case POWERUP.WARP_PREV:
+      if (state.stage > 1) {
+        state.stage--;
+        resetStage();
+        state.current = STATE.STAGE_INTRO;
+        state.stageIntroTimer = 120;
+      }
+      break;
+    case POWERUP.DECOY:
+      state.decoyPaddle = {
+        x: state.paddle.x,
+        y: canvas.height - 100,
+        width: state.paddle.width,
+        height: state.paddle.height,
+        dy: 0.5,
+      };
+      break;
+    case POWERUP.MISS:
+      state.missActive = true;
+      state.missTimer = 300;
+      state.balls.forEach(b => {
+        if (!b.onPaddle) {
+          b.dx = 0;
+          b.dy = b.speed;
+        }
+      });
       break;
   }
 }

@@ -71,35 +71,41 @@ const BRICK_COLORS = {
 
 const POWERUP = {
   EXPAND: 'expand',
-  SHRINK: 'shrink',
-  FIREBALL: 'fireball',
-  MULTIBALL: 'multiball',
-  LASER: 'laser',
   SLOW: 'slow',
-  FAST: 'fast',
-  GRAB: 'grab',
+  MULTIBALL: 'multiball',
+  CATCH: 'catch',
+  LASER: 'laser',
+  REVERSE: 'reverse',
+  WARP_NEXT: 'warp_next',
+  WARP_PREV: 'warp_prev',
+  DECOY: 'decoy',
+  MISS: 'miss',
 };
 
 const POWERUP_CONFIG = {
-  [POWERUP.EXPAND]: { color: '#00ff55', label: 'W' },
-  [POWERUP.SHRINK]: { color: '#ff3344', label: 'S' },
-  [POWERUP.FIREBALL]: { color: '#ff6600', label: 'F' },
-  [POWERUP.MULTIBALL]: { color: '#ffff00', label: 'M' },
+  [POWERUP.EXPAND]: { color: '#00ff55', label: 'E' },
+  [POWERUP.SLOW]: { color: '#00ccff', label: 'S' },
+  [POWERUP.MULTIBALL]: { color: '#ffff00', label: 'B' },
+  [POWERUP.CATCH]: { color: '#aa88ff', label: 'C' },
   [POWERUP.LASER]: { color: '#00ffaa', label: 'L' },
-  [POWERUP.SLOW]: { color: '#00ccff', label: 'v' },
-  [POWERUP.FAST]: { color: '#ff00ff', label: '^' },
-  [POWERUP.GRAB]: { color: '#aa88ff', label: 'G' },
+  [POWERUP.REVERSE]: { color: '#ff3344', label: 'D' },
+  [POWERUP.WARP_NEXT]: { color: '#ff6600', label: 'F' },
+  [POWERUP.WARP_PREV]: { color: '#ff6600', label: 'G' },
+  [POWERUP.DECOY]: { color: '#88ff88', label: 'P' },
+  [POWERUP.MISS]: { color: '#ff0000', label: 'M' },
 };
 
 const POWERUP_DESCRIPTIONS = {
   [POWERUP.EXPAND]: 'Widens paddle',
-  [POWERUP.SHRINK]: 'Shrinks paddle',
-  [POWERUP.FIREBALL]: 'Ball pierces everything',
-  [POWERUP.MULTIBALL]: 'Splits balls',
-  [POWERUP.LASER]: 'Paddle shoots lasers',
   [POWERUP.SLOW]: 'Slows balls down',
-  [POWERUP.FAST]: 'Speeds balls up',
-  [POWERUP.GRAB]: 'Catches balls on paddle',
+  [POWERUP.MULTIBALL]: 'Splits into 3 balls',
+  [POWERUP.CATCH]: 'Ball sticks to paddle',
+  [POWERUP.LASER]: 'Paddle shoots lasers',
+  [POWERUP.REVERSE]: 'Reverse controls',
+  [POWERUP.WARP_NEXT]: 'Warp to next stage',
+  [POWERUP.WARP_PREV]: 'Warp to previous stage',
+  [POWERUP.DECOY]: 'Extra paddle below',
+  [POWERUP.MISS]: 'Ball drops straight down',
 };
 
 const state = {
@@ -108,7 +114,7 @@ const state = {
   displayScore: 0,
   lives: 3,
   stage: 1,
-  totalStages: 10,
+  totalStages: 33,
   highScore: parseInt(localStorage.getItem('arkanoid_highscore') || '0', 10),
   unlockedStages: parseInt(localStorage.getItem('arkanoid_unlocked_stages') || '1', 10),
   combo: 0,
@@ -124,20 +130,23 @@ const state = {
   bricks: [],
   powerUps: [],
   lasers: [],
+  enemies: [],
+  boss: null,
+  decoyPaddle: null,
 
   keys: {},
   mouseDown: false,
 
   ballOnPaddle: true,
-  fireballActive: false,
-  fireballTimer: 0,
   laserActive: false,
   laserTimer: 0,
   expandTimer: 0,
-  shrinkActive: false,
-  shrinkTimer: 0,
   ballGrabActive: false,
   ballGrabTimer: 0,
+  reverseControls: false,
+  reverseTimer: 0,
+  missActive: false,
+  missTimer: 0,
 
   frameCount: 0,
   dt: 1,
@@ -178,8 +187,9 @@ function createPaddle() {
 
 function createBall(onPaddle = true) {
   const diffConfig = DIFFICULTY_CONFIG[state.difficulty];
-  const stageSpeedBonus = (state.stage - 1) * 0.3;
-  const speed = 5 + stageSpeedBonus + diffConfig.ballSpeedMod;
+  const tier = Math.floor((state.stage - 1) / 5);
+  const speedTiers = [4, 5, 6, 7, 8];
+  const speed = speedTiers[Math.min(tier, speedTiers.length - 1)] + diffConfig.ballSpeedMod;
   return {
     x: onPaddle ? null : canvas.width / 2,
     y: onPaddle ? null : canvas.height - 70,
@@ -188,7 +198,6 @@ function createBall(onPaddle = true) {
     radius: BALL_RADIUS,
     speed: Math.max(3, speed),
     onPaddle: onPaddle,
-    fireball: state.fireballActive,
     trail: [],
   };
 }
@@ -196,12 +205,15 @@ function createBall(onPaddle = true) {
 function resetBall() {
   state.balls = [createBall(true)];
   state.ballOnPaddle = true;
-  state.fireballActive = false;
-  state.fireballTimer = 0;
   state.laserActive = false;
   state.laserTimer = 0;
   state.ballGrabActive = false;
   state.ballGrabTimer = 0;
+  state.reverseControls = false;
+  state.reverseTimer = 0;
+  state.missActive = false;
+  state.missTimer = 0;
+  state.decoyPaddle = null;
   state.ballTrails = [];
 }
 
@@ -209,9 +221,6 @@ function initPaddle() {
   state.paddle = createPaddle();
   if (state.expandTimer > 0) {
     state.paddle.width = Math.min(250, state.paddle.width + 40);
-  }
-  if (state.shrinkActive) {
-    state.paddle.width = Math.max(50, state.paddle.width - 40);
   }
 }
 
@@ -256,6 +265,11 @@ function resetStage() {
   state.lasers = [];
   state.brickFlashes = [];
   state.ballTrails = [];
+  state.reverseControls = false;
+  state.reverseTimer = 0;
+  state.missActive = false;
+  state.missTimer = 0;
+  state.decoyPaddle = null;
   resetBall();
   initPaddle();
 }
@@ -269,8 +283,6 @@ function startGame() {
   state.combo = 0;
   state.nextExtraLifeIndex = 0;
   state.expandTimer = 0;
-  state.shrinkActive = false;
-  state.shrinkTimer = 0;
   resetStage();
   state.current = STATE.STAGE_INTRO;
   state.stageIntroTimer = 120;
@@ -285,8 +297,6 @@ function startGameAtStage(stageNum) {
   state.combo = 0;
   state.nextExtraLifeIndex = 0;
   state.expandTimer = 0;
-  state.shrinkActive = false;
-  state.shrinkTimer = 0;
   resetStage();
   state.current = STATE.STAGE_INTRO;
   state.stageIntroTimer = 120;
@@ -323,9 +333,11 @@ function loseLife() {
     return;
   }
   resetBall();
-  state.fireballActive = false;
-  state.fireballTimer = 0;
-  state.ballGrabActive = false;
+  state.reverseControls = false;
+  state.reverseTimer = 0;
+  state.missActive = false;
+  state.missTimer = 0;
+  state.decoyPaddle = null;
 }
 
 function addScore(points) {
@@ -342,6 +354,9 @@ function addScore(points) {
 }
 
 function checkStageClear() {
+  if (state.boss && state.boss.active) {
+    return state.boss.hp <= 0;
+  }
   for (let c = 0; c < COLS; c++) {
     for (let r = 0; r < ROWS; r++) {
       const b = state.bricks[c][r];
@@ -362,8 +377,6 @@ function restartGame() {
   state.combo = 0;
   state.nextExtraLifeIndex = 0;
   state.expandTimer = 0;
-  state.shrinkActive = false;
-  state.shrinkTimer = 0;
   resetStage();
   state.current = STATE.STAGE_INTRO;
   state.stageIntroTimer = 120;

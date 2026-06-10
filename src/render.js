@@ -1,6 +1,8 @@
 import { ctx, canvas } from './canvas.js';
 import { state, STATE, BRICK_TYPE, COLS, ROWS, BRICK_WIDTH, BRICK_HEIGHT, POWERUP_CONFIG, POWERUP_DESCRIPTIONS, BRICK_COLORS, STAGE_THEMES, DIFFICULTY, DIFFICULTY_CONFIG, getTheme } from './gameState.js';
 import { particles, lasers } from './particles.js';
+import { enemies } from './enemies.js';
+import { boss } from './boss.js';
 
 function draw() {
   ctx.save();
@@ -81,11 +83,14 @@ function drawGrid(theme) {
 function drawGame() {
   drawBricks();
   drawBrickFlashes();
+  drawEnemies();
+  drawBoss();
   drawPowerUps();
   drawLasers();
   drawBallTrails();
   drawBalls();
   drawPaddle();
+  drawDecoyPaddle();
   drawParticles();
   drawTrajectoryPreview();
   drawHUD();
@@ -160,6 +165,109 @@ function drawBricks() {
       }
     }
   }
+}
+
+function drawEnemies() {
+  enemies.forEach(enemy => {
+    if (enemy.hits <= 0) return;
+
+    const pulse = Math.sin(state.frameCount * 0.1) * 0.2 + 0.8;
+
+    ctx.shadowColor = '#ff4444';
+    ctx.shadowBlur = 10;
+
+    ctx.fillStyle = `rgba(255, 68, 68, ${pulse})`;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffaa44';
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.radius * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(enemy.x - 3, enemy.y - 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+  });
+}
+
+function drawBoss() {
+  if (!boss.active) return;
+
+  ctx.shadowColor = boss.color || '#ff4444';
+  ctx.shadowBlur = 20;
+
+  const gradient = ctx.createLinearGradient(boss.x, boss.y, boss.x, boss.y + boss.height);
+  gradient.addColorStop(0, boss.color || '#ff4444');
+  gradient.addColorStop(0.5, '#aa0000');
+  gradient.addColorStop(1, '#660000');
+
+  ctx.fillStyle = gradient;
+  roundRect(ctx, boss.x, boss.y, boss.width, boss.height, 8);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(boss.x + boss.width * 0.3, boss.y + boss.height * 0.4, 8, 0, Math.PI * 2);
+  ctx.arc(boss.x + boss.width * 0.7, boss.y + boss.height * 0.4, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(boss.x + boss.width * 0.3, boss.y + boss.height * 0.4, 4, 0, Math.PI * 2);
+  ctx.arc(boss.x + boss.width * 0.7, boss.y + boss.height * 0.4, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hpPercent = boss.hp / boss.maxHp;
+  const barWidth = boss.width;
+  const barHeight = 6;
+  const barX = boss.x;
+  const barY = boss.y - 15;
+
+  ctx.fillStyle = '#333333';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+
+  ctx.fillStyle = hpPercent > 0.5 ? '#00ff00' : hpPercent > 0.25 ? '#ffaa00' : '#ff0000';
+  ctx.fillRect(barX, barY, barWidth * hpPercent, barHeight);
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+  ctx.font = 'bold 10px "Courier New"';
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(boss.name || 'BOSS', boss.x + boss.width / 2, boss.y - 25);
+
+  boss.projectiles.forEach(proj => {
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ff4444';
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+}
+
+function drawDecoyPaddle() {
+  if (!state.decoyPaddle) return;
+
+  const p = state.decoyPaddle;
+  const alpha = 0.5 + Math.sin(state.frameCount * 0.1) * 0.2;
+
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#88ff88';
+  roundRect(ctx, p.x, p.y, p.width, p.height, 4);
+  ctx.fill();
+  ctx.globalAlpha = 1;
 }
 
 function drawPaddle() {
@@ -477,48 +585,56 @@ function drawStageSelect() {
   ctx.shadowBlur = 20;
   ctx.font = 'bold 36px "Courier New"';
   ctx.fillStyle = '#00ccdd';
-  ctx.fillText('SELECT STAGE', canvas.width / 2, 100);
+  ctx.fillText('SELECT STAGE', canvas.width / 2, 60);
   ctx.shadowBlur = 0;
 
-  const cols = 5;
-  const cellW = 100;
-  const cellH = 80;
+  const cols = 6;
+  const rows = 6;
+  const cellW = 80;
+  const cellH = 60;
   const startX = (canvas.width - cols * cellW) / 2;
-  const startY = 160;
+  const startY = 100;
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 33; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const x = startX + col * cellW + cellW / 2;
     const y = startY + row * cellH + cellH / 2;
     const selected = i === state.stageSelectIndex;
     const unlocked = i < state.unlockedStages;
-    const theme = STAGE_THEMES[i];
+    const theme = STAGE_THEMES[i % STAGE_THEMES.length];
+    const isBoss = [7, 14, 21, 28, 33].includes(i + 1);
 
     if (selected) {
       ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 2;
-      roundRect(ctx, x - cellW / 2 + 5, y - cellH / 2 + 5, cellW - 10, cellH - 10, 6);
+      roundRect(ctx, x - cellW / 2 + 3, y - cellH / 2 + 3, cellW - 6, cellH - 6, 4);
       ctx.stroke();
       ctx.fillStyle = `${theme.accent}15`;
-      roundRect(ctx, x - cellW / 2 + 5, y - cellH / 2 + 5, cellW - 10, cellH - 10, 6);
+      roundRect(ctx, x - cellW / 2 + 3, y - cellH / 2 + 3, cellW - 6, cellH - 6, 4);
       ctx.fill();
     }
 
-    ctx.font = selected ? 'bold 20px "Courier New"' : '16px "Courier New"';
+    ctx.font = selected ? 'bold 16px "Courier New"' : '14px "Courier New"';
     ctx.fillStyle = unlocked ? (selected ? theme.accent : '#fff') : '#444';
-    ctx.fillText(unlocked ? `${i + 1}` : 'X', x, y - 5);
+    ctx.fillText(unlocked ? `${i + 1}` : 'X', x, y - 3);
 
-    ctx.font = '10px "Courier New"';
-    ctx.fillStyle = unlocked ? '#888' : '#333';
-    ctx.fillText(unlocked ? theme.name : 'LOCKED', x, y + 15);
+    if (isBoss && unlocked) {
+      ctx.font = '8px "Courier New"';
+      ctx.fillStyle = '#ff4444';
+      ctx.fillText('BOSS', x, y + 12);
+    } else {
+      ctx.font = '8px "Courier New"';
+      ctx.fillStyle = unlocked ? '#666' : '#333';
+      ctx.fillText(unlocked ? theme.name : 'LOCKED', x, y + 12);
+    }
   }
 
   const pulse = Math.sin(state.frameCount * 0.08) * 0.3 + 0.7;
   ctx.globalAlpha = pulse;
   ctx.font = '14px "Courier New"';
   ctx.fillStyle = '#fff';
-  ctx.fillText('LEFT/RIGHT TO SELECT, SPACE TO START', canvas.width / 2, 500);
+  ctx.fillText('ARROWS TO SELECT, SPACE TO START', canvas.width / 2, 500);
   ctx.globalAlpha = 1;
 }
 

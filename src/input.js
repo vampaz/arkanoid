@@ -76,7 +76,13 @@ document.addEventListener('keydown', (e) => {
       _state.stageSelectIndex = Math.max(0, _state.stageSelectIndex - 1);
     }
     if (e.key === 'ArrowRight' || e.key === 'd') {
-      _state.stageSelectIndex = Math.min(9, _state.stageSelectIndex + 1);
+      _state.stageSelectIndex = Math.min(32, _state.stageSelectIndex + 1);
+    }
+    if (e.key === 'ArrowUp' || e.key === 'w') {
+      _state.stageSelectIndex = Math.max(0, _state.stageSelectIndex - 6);
+    }
+    if (e.key === 'ArrowDown' || e.key === 's') {
+      _state.stageSelectIndex = Math.min(32, _state.stageSelectIndex + 6);
     }
   }
 
